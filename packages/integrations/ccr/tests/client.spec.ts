@@ -13,6 +13,6 @@ describe('CCR bridge', () => {
     await expect(client.getIntegrations()).resolves.toEqual({ skills: [{ id: 'review' }], mcpServers: [] })
     const request = fetch.mock.calls[0]?.[0]
     expect(String(request)).toBe('http://ccr/__ccr/integrations/v1')
-    expect(fetch.mock.calls[0]?.[1]?.headers).toEqual(expect.objectContaining({ authorization: 'Bearer secret' }))
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get('authorization')).toBe('Bearer secret')
   })
 })
