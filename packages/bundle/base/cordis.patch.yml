@@ -40,6 +40,10 @@
     - id: session
       name: '@deepseek-ai/dsh-session'
 
+    - id: ccr
+      name: '@deepseek-ai/dsh-ccr'
+      disabled: !!js "!process.env.CCR_BASE_URL"
+
     - id: session-log-deepseek
       name: '@deepseek-ai/dsh-session-log-deepseek'
 
