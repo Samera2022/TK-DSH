@@ -105,6 +105,7 @@ interface CompiledResolution {
   readonly profilesDir: string
   readonly profileDir: string | undefined
   readonly profilePaths: readonly string[]
+  readonly sharedModulePaths: readonly string[]
   readonly profile: readonly string[]
   readonly installationPaths: readonly string[]
   readonly linkedPaths: readonly string[]
@@ -171,6 +172,7 @@ function compileResolution(resolution: RuntimeResolution): CompiledResolution {
     profilesDir: resolution.profilesDir,
     profileDir: resolution.profileDir,
     profilePaths: prefixes(resolution.profilesDir),
+    sharedModulePaths: prefixes(join(resolution.profilesDir, 'node_modules')),
     profile: resolution.profileDir === undefined ? [] : prefixes(resolution.profileDir),
     installationPaths: [...new Set(resolution.entries
       .filter(entry => entry.scope === 'installation')
@@ -256,6 +258,15 @@ function localPackageCandidate(searchPath: string, name: string, flavor: 'esm' |
     : stat !== undefined
       || ['.js', '.json', '.node'].some(extension => existsSync(candidate + extension))
   return found ? candidate : undefined
+}
+
+/** Whether a profile-local scoped lookup reaches the shared interception layer through its scope directory. */
+function aliasesSharedScope(searchPath: string, name: string, resolution: CompiledResolution): boolean {
+  if (name[0] !== '@') return false
+  const slash = name.indexOf('/')
+  /* v8 ignore next -- scoped names reaching this helper always contain a package segment */
+  if (slash < 0) return false
+  return startsWithin(canonicalPath(join(searchPath, name.slice(0, slash))) + sep, resolution.sharedModulePaths)
 }
 
 function selfReferenceName(parent: string): string | false | null {
@@ -468,8 +479,9 @@ class ResolutionRouter {
     const target = resolution.entries.get(name)
     const candidates: string[] = []
     const localSearchPaths: string[] = []
-    for (const searchPath of createRequire(parent).resolve.paths(name) as string[]) {
+    for (const searchPath of createRequire(parent).resolve.paths(request) ?? []) {
       if (!searchPath.startsWith(layer.localPrefix)) break
+      if (aliasesSharedScope(searchPath, name, resolution)) continue
       localSearchPaths.push(searchPath)
       const candidate = localPackageCandidate(searchPath, name, flavor)
       if (candidate !== undefined) candidates.push(candidate)
@@ -521,7 +533,7 @@ class ResolutionRouter {
     if (target === undefined) return { route: { kind: 'native' } }
     const ancestors = this.nodeModulePaths(dirname(parent))
     const ancestorSet = new Set(ancestors)
-    const searchPaths = flavor === 'esm' ? ancestors : createRequire(parent).resolve.paths(name) as string[]
+    const searchPaths = flavor === 'esm' ? ancestors : createRequire(parent).resolve.paths(request) ?? []
     for (const searchPath of searchPaths) {
       const directory = dirname(searchPath)
       if (ancestorSet.has(searchPath) && readPeerNames(directory).has(name)) {

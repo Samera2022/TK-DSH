@@ -836,8 +836,10 @@ describe('runtime resolution', { concurrent: false }, () => {
     const registration = installRuntimeInterception(await resolutionOf(f))
     registrations.push(registration)
     const require = createRequire(join(f.profile.dir, 'entry.cjs'))
+    file(join(f.profile.dir, 'node_modules', 'punycode', 'index.js'), 'module.exports = { marker: 8 }\n')
     expect(require('undeclared-local')).toEqual({ marker: 6 })
     expect(require('./relative.cjs')).toBe(7)
+    expect(require('punycode/')).toEqual({ marker: 8 })
     expect(require('node:path')).toHaveProperty('join')
     expect(require('path')).toHaveProperty('join')
     const parent = pathToFileURL(join(f.profile.dir, 'undeclared-entry.mjs')).href
@@ -1109,6 +1111,30 @@ describe('runtime resolution', { concurrent: false }, () => {
     }
     expect(registration.packageDir(name, parent)).toBe(f.installed)
     expect(realpathSync(shared)).toBe(target)
+  })
+
+  it('uses the installation DSH package through a profile scope link to stale shared packages', async () => {
+    const name = '@deepseek-ai/dsh-core'
+    const f = fixture(name)
+    const target = join(f.root, 'old-dsh', 'node_modules', name)
+    pkg(target, name, 9)
+    const sharedScope = join(f.root, 'profiles', 'node_modules', '@deepseek-ai')
+    const shared = join(sharedScope, 'dsh-core')
+    mkdirSync(sharedScope, { recursive: true })
+    symlinkSync(target, shared, process.platform === 'win32' ? 'junction' : 'dir')
+    const profileScope = join(f.profile.dir, 'node_modules', '@deepseek-ai')
+    mkdirSync(dirname(profileScope), { recursive: true })
+    symlinkSync(sharedScope, profileScope, process.platform === 'win32' ? 'junction' : 'dir')
+    const registration = installRuntimeInterception(await resolutionOf(f))
+    registrations.push(registration)
+    const require = createRequire(join(f.profile.dir, 'entry.cjs'))
+    const parent = pathToFileURL(join(f.profile.dir, 'entry.mjs')).href
+    expect(require(name)).toEqual({ marker: 1 })
+    expect(require.resolve(name)).toBe(join(f.installed, 'index.cjs'))
+    expect(resolveFrom(name, parent)).toBe(pathToFileURL(join(f.installed, 'index.js')).href)
+    expect(await importFrom(name, parent)).toMatchObject({ marker: 1 })
+    expect(registration.packageDir(name, parent)).toBe(f.installed)
+    expect(realpathSync(profileScope)).toBe(sharedScope)
   })
 
   it('treats a profile symlink into .dsh-module-fallback as an ordinary local package', async () => {
