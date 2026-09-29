@@ -4,6 +4,8 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../llm/llm" },
+    { "path": "../../llm/llm-deepseek" },
     { "path": "../../core/session" }
   ]
 }

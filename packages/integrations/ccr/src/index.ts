@@ -1,9 +1,12 @@
 /** Optional bridge to the CCR project-history and integrations services. */
 import type { Context } from '@deepseek-ai/cordis'
+import { resolveAdapterOptions, registerDeepSeekProvider } from '@deepseek-ai/dsh-llm-deepseek'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 
 export const name = 'ccr'
-export const inject = ['sessions']
+export const inject = ['sessions', 'llm']
+export const CCR_PROVIDER_ID = 'ccr'
+export const CCR_ROUTER_MANAGED_MODEL_ID = 'router-managed'
 
 export interface CcrClientOptions {
   readonly baseUrl: string
@@ -76,6 +79,32 @@ export function apply(ctx: Context): void {
   if (baseUrl === undefined) return
   const token = process.env.CCR_TOKEN
   const client = new CcrClient({ baseUrl, ...(token === undefined ? {} : { token }) })
+
+  registerDeepSeekProvider(ctx, CCR_PROVIDER_ID, {
+    providerName: 'CCR Provider',
+    discoverModels: provider => Promise.resolve([{
+      provider,
+      id: CCR_ROUTER_MANAGED_MODEL_ID,
+      name: 'Router managed',
+      description: 'CCR selects the target provider and model for every request.',
+      inputModalities: ['text', 'image'],
+    }]),
+    options: () => resolveAdapterOptions({
+      baseURL: baseUrl,
+      models: [{
+        id: CCR_ROUTER_MANAGED_MODEL_ID,
+        name: 'Router managed',
+        description: 'CCR selects the target provider and model for every request.',
+        inputModalities: ['text', 'image'],
+        systemPromptUpdate: 'in-history',
+        toolUpdate: 'in-history',
+      }],
+    }),
+    resolveAuth: () => Promise.resolve({
+      headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
+    }),
+  })
+
   const threads = new WeakMap<Session, Promise<void>>()
   const queued = new WeakMap<Session, Promise<void>>()
 
@@ -96,7 +125,9 @@ export function apply(ctx: Context): void {
       .then(() => threadFor(session))
       .then(() => client.appendMessage(session.header.id, event))
     queued.set(session, next)
-    void next.catch(error => ctx.logger.warn(`CCR history sync failed: ${String(error)}`))
+    void next.catch((error: unknown) => {
+      ctx.logger.warn(`CCR history sync failed: ${String(error)}`)
+    })
   })
   ctx.on('session/disposed', (session) => {
     threads.delete(session)
