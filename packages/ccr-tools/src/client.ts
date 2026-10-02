@@ -1,65 +1,169 @@
 /**
- * CCR HTTP client for model switching
+ * CCR HTTP Client for model switching and orchestra management
  */
 
-import type {
-  AvailableModel,
-  ModelsResponse,
-  SwitchModelRequest,
-  SwitchModelResponse,
-  CcrConfig,
-} from './types.ts'
+import type { CcrConfig, SwitchModelResponse, BudgetState, OrchestraConfig, Role } from './types.ts'
 
 export class CcrClient {
-  constructor(
-    private readonly config: CcrConfig,
-    private readonly clientId: string = 'dsh',
-    private readonly sessionId?: string,
-  ) {}
+  private baseUrl: string
+  private apiKey: string | undefined
+  private clientId: string
+  private sessionId: string | undefined
 
-  async getModels(): Promise<AvailableModel[]> {
-    const url = `${this.config.baseUrl}/v1/ccr/models`
-
-    const headers: Record<string, string> = {}
-    if (this.config.apiKey) {
-      headers['Authorization'] = `Bearer ${this.config.apiKey}`
-    }
-
-    const response = await fetch(url, { headers })
-
-    if (!response.ok) {
-      throw new Error(`Failed to get models: ${response.statusText}`)
-    }
-
-    const data = (await response.json()) as ModelsResponse
-    return data.models
+  constructor(config: CcrConfig, clientId: string = 'dsh', sessionId?: string) {
+    this.baseUrl = config.baseUrl || process.env.CCR_BASE_URL || 'http://localhost:8788'
+    this.apiKey = config.apiKey || process.env.CCR_API_KEY
+    this.clientId = clientId
+    this.sessionId = sessionId
   }
 
-  async switchModel(model: string, reason: string): Promise<SwitchModelResponse> {
-    const url = `${this.config.baseUrl}/v1/ccr/switch-model`
+  /**
+   * Get list of available models from CCR
+   */
+  async getModels(): Promise<{ id: string; displayName: string; provider: string }[]> {
+    const response = await this.request('/v1/ccr/models', { method: 'GET' })
+    const data = await response.json()
+    return data.models || []
+  }
 
+  /**
+   * Switch to a different model
+   */
+  async switchModel(model: string, reason: string): Promise<SwitchModelResponse> {
+    const response = await this.request('/v1/ccr/switch-model', {
+      method: 'POST',
+      body: JSON.stringify({ model, reason }),
+    })
+
+    return await response.json()
+  }
+
+  /**
+   * Get budget state for a model
+   */
+  async getBudgetState(model: string): Promise<BudgetState> {
+    const response = await this.request(`/v2/ccr/budget/state?model=${encodeURIComponent(model)}`, {
+      method: 'GET',
+    })
+
+    return await response.json()
+  }
+
+  /**
+   * Respond to budget confirmation request
+   */
+  async respondToBudgetConfirmation(
+    action: 'continue' | 'switch' | 'stop',
+    model?: string,
+    targetModel?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const body: any = { action }
+    if (model) body.model = model
+    if (targetModel) body.targetModel = targetModel
+
+    const response = await this.request('/v2/ccr/budget/confirm', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+
+    return await response.json()
+  }
+
+  /**
+   * Reset budget tracking
+   */
+  async resetBudget(model?: string): Promise<{ success: boolean; message: string }> {
+    const response = await this.request('/v2/ccr/budget/reset', {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    })
+
+    return await response.json()
+  }
+
+  /**
+   * Get orchestra configuration
+   */
+  async getOrchestraConfig(): Promise<OrchestraConfig> {
+    const response = await this.request('/v2/ccr/orchestra/config', { method: 'GET' })
+    return await response.json()
+  }
+
+  /**
+   * Update orchestra configuration
+   */
+  async updateOrchestraConfig(config: OrchestraConfig): Promise<{ success: boolean; message: string }> {
+    const response = await this.request('/v2/ccr/orchestra/config', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    })
+
+    return await response.json()
+  }
+
+  /**
+   * Get all roles
+   */
+  async getRoles(): Promise<Role[]> {
+    const response = await this.request('/v2/ccr/orchestra/roles', { method: 'GET' })
+    const data = await response.json()
+    return data.roles || []
+  }
+
+  /**
+   * Add or update a role
+   */
+  async upsertRole(role: Role): Promise<{ success: boolean; message: string }> {
+    const response = await this.request('/v2/ccr/orchestra/roles', {
+      method: 'POST',
+      body: JSON.stringify(role),
+    })
+
+    return await response.json()
+  }
+
+  /**
+   * Delete a role
+   */
+  async deleteRole(roleName: string): Promise<{ success: boolean; message: string }> {
+    const response = await this.request(`/v2/ccr/orchestra/roles/${encodeURIComponent(roleName)}`, {
+      method: 'DELETE',
+    })
+
+    return await response.json()
+  }
+
+  /**
+   * Internal request helper
+   */
+  private async request(path: string, options: RequestInit): Promise<Response> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-cc-switch-client': this.clientId,
     }
 
-    if (this.config.apiKey) {
-      headers['Authorization'] = `Bearer ${this.config.apiKey}`
+    if (this.apiKey) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`
     }
 
     if (this.sessionId) {
       headers['x-ccr-session-id'] = this.sessionId
     }
 
-    const body: SwitchModelRequest = { model, reason }
+    const url = `${this.baseUrl}${path}`
 
     const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
+      ...options,
+      headers: {
+        ...headers,
+        ...(options.headers || {}),
+      },
     })
 
-    const data = (await response.json()) as SwitchModelResponse
-    return data
+    if (!response.ok && response.status >= 500) {
+      throw new Error(`CCR request failed: ${response.status} ${response.statusText}`)
+    }
+
+    return response
   }
 }

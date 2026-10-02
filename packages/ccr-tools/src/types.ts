@@ -1,6 +1,13 @@
 /**
- * Types for CCR integration
+ * CCR Tools type definitions
  */
+
+export interface CcrConfig {
+  baseUrl?: string
+  apiKey?: string
+  modelSwitchingEnabled?: boolean
+  orchestraEnabled?: boolean
+}
 
 export interface AvailableModel {
   id: string
@@ -10,33 +17,50 @@ export interface AvailableModel {
   capabilities?: string[]
 }
 
-export interface ModelsResponse {
-  models: AvailableModel[]
-}
-
 export interface SwitchModelRequest {
   model: string
   reason: string
 }
 
-export interface SwitchModelSuccessResponse {
-  success: true
-  model: string
+export interface SwitchModelResponse {
+  success: boolean
+  model?: string
   previousModel?: string
+  error?: string
+  message?: string
+  availableModels?: AvailableModel[]
 }
 
-export interface SwitchModelErrorResponse {
-  success: false
-  error: string
-  message: string
-  availableModels: AvailableModel[]
+export interface BudgetState {
+  model: string
+  budget: number
+  used: number
+  remaining: number
+  percentage: number
 }
 
-export type SwitchModelResponse = SwitchModelSuccessResponse | SwitchModelErrorResponse
+export interface BudgetConfirmationRequest {
+  model: string
+  currentUsage: number
+  budgetLimit: number
+  taskContext?: string
+}
 
-export interface CcrConfig {
-  baseUrl: string
-  apiKey?: string
-  modelSwitchingEnabled: boolean
-  orchestraEnabled: boolean
+export type BudgetConfirmationResponse =
+  | { action: 'continue' }
+  | { action: 'switch'; targetModel: string }
+  | { action: 'stop' }
+
+export interface OrchestraConfig {
+  enabled: boolean
+  defaultOrchestratorModel: string
+  roles: Role[]
+}
+
+export interface Role {
+  name: string
+  model: string
+  systemPrompt: string
+  triggers: string[]
+  budget?: number
 }
