@@ -21,7 +21,7 @@ export class CcrClient {
    * Get list of available models from CCR
    */
   async getModels(): Promise<{ id: string; displayName: string; provider: string }[]> {
-    const response = await this.request('/v1/ccr/models', { method: 'GET' })
+    const response = await this.request('/__ccr/model-control/v1/models', { method: 'GET' })
     const data = await response.json()
     return data.models || []
   }
@@ -30,9 +30,9 @@ export class CcrClient {
    * Switch to a different model
    */
   async switchModel(model: string, reason: string): Promise<SwitchModelResponse> {
-    const response = await this.request('/v1/ccr/switch-model', {
+    const response = await this.request('/__ccr/model-control/v1/switch', {
       method: 'POST',
-      body: JSON.stringify({ model, reason }),
+      body: JSON.stringify({ sessionKey: this.getSessionKey(), targetModel: model, reason }),
     })
 
     return await response.json()
@@ -41,8 +41,8 @@ export class CcrClient {
   /**
    * Get budget state for a model
    */
-  async getBudgetState(model: string): Promise<BudgetState> {
-    const response = await this.request(`/v2/ccr/budget/state?model=${encodeURIComponent(model)}`, {
+  async getBudgetState(_model: string): Promise<BudgetState> {
+    const response = await this.request(`/__ccr/model-control/v1/budget/${this.getSessionKey()}`, {
       method: 'GET',
     })
 
@@ -57,11 +57,11 @@ export class CcrClient {
     model?: string,
     targetModel?: string,
   ): Promise<{ success: boolean; message: string }> {
-    const body: any = { action }
+    const body: any = { action, sessionKey: this.getSessionKey() }
     if (model) body.model = model
     if (targetModel) body.targetModel = targetModel
 
-    const response = await this.request('/v2/ccr/budget/confirm', {
+    const response = await this.request('/__ccr/model-control/v1/budget-confirm', {
       method: 'POST',
       body: JSON.stringify(body),
     })
@@ -85,7 +85,7 @@ export class CcrClient {
    * Get orchestra configuration
    */
   async getOrchestraConfig(): Promise<OrchestraConfig> {
-    const response = await this.request('/v2/ccr/orchestra/config', { method: 'GET' })
+    const response = await this.request('/__ccr/orchestra/v1/config', { method: 'GET' })
     return await response.json()
   }
 
@@ -93,7 +93,7 @@ export class CcrClient {
    * Update orchestra configuration
    */
   async updateOrchestraConfig(config: OrchestraConfig): Promise<{ success: boolean; message: string }> {
-    const response = await this.request('/v2/ccr/orchestra/config', {
+    const response = await this.request('/__ccr/orchestra/v1/config', {
       method: 'POST',
       body: JSON.stringify(config),
     })
@@ -132,6 +132,14 @@ export class CcrClient {
 
     return await response.json()
   }
+
+  /**
+   * Get session key for API calls
+   */
+  private getSessionKey(): string {
+    return `${this.clientId}:${this.sessionId || 'default'}`
+  }
+
 
   /**
    * Internal request helper

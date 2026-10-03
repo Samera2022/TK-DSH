@@ -20,7 +20,7 @@ export const CCR_SWITCH_MODEL_TOOL_SCHEMA = {
     model: {
       type: 'string',
       description:
-        "The model ID to switch to (e.g., 'openai/gpt-5.6-sol', 'anthropic/claude-opus-5', 'deepseek/deepseek-v4')",
+        "The model ID to switch to (e.g., 'gpt-5.6-sol', 'claude-opus-5', 'deepseek-v4')",
     },
     reason: {
       type: 'string',
@@ -42,16 +42,18 @@ export async function executeCcrModelSwitch(
     const response = await client.switchModel(args.model, args.reason)
 
     if (response.success) {
+      const currentModel = response.model || args.model
       const previous = response.previousModel ? ` (previous: ${response.previousModel})` : ''
       return {
         success: true,
-        message: `Successfully switched to model ${response.model}${previous}`,
+        message: `Successfully switched to model ${currentModel}${previous}`,
       }
     } else {
       const modelList = response.availableModels?.map(m => `- ${m.id}: ${m.displayName}`).join('\n') || ''
+      const errorMsg = response.error || response.message || 'Model switch failed'
       return {
         success: false,
-        message: `${response.message}\n\nAvailable models:\n${modelList}`,
+        message: `${errorMsg}\n\nAvailable models:\n${modelList}`,
         error: response.error,
       }
     }
@@ -71,30 +73,25 @@ export async function executeCcrModelSwitch(
 export const CCR_GET_BUDGET_TOOL_SCHEMA = {
   name: 'ccr_get_budget',
   description:
-    'Check the current token budget status for a specific model. ' +
+    'Check the current token budget status for the session. ' +
     'Use this to monitor usage and decide if you need to switch to a more cost-effective model.',
-  parameters: {
-    model: {
-      type: 'string',
-      description: 'The model ID to check budget for',
-    },
-  },
-  required: ['model'],
+  parameters: {},
+  required: [],
 } as const
 
 export async function executeCcrGetBudget(
-  args: { model: string },
+  _args: Record<string, never>,
   config: CcrConfig,
   sessionId?: string,
 ): Promise<{ success: boolean; budget: any; message?: string | undefined; error?: string | undefined }> {
   const client = new CcrClient(config, 'dsh', sessionId)
 
   try {
-    const state = await client.getBudgetState(args.model)
+    const state = await client.getBudgetState('')
     return {
       success: true,
       budget: state,
-      message: `Budget: ${state.used.toLocaleString()}/${state.budget.toLocaleString()} tokens (${state.percentage.toFixed(1)}% used)`,
+      message: `Budget: ${state.used.toLocaleString()}/${state.budget.toLocaleString()} tokens (${state.percentage.toFixed(1)}% used) for model ${state.model}`,
     }
   } catch (error) {
     return {
@@ -173,7 +170,7 @@ export const CCR_LIST_MODELS_TOOL_SCHEMA = {
 } as const
 
 export async function executeCcrListModels(
-  _args: Record<string, never>,
+  __args: Record<string, never>,
   config: CcrConfig,
   sessionId?: string,
 ): Promise<{ success: boolean; models?: any[]; message?: string | undefined; error?: string | undefined }> {
